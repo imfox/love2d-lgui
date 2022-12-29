@@ -16,13 +16,13 @@ local gr = love.graphics;
 ---@field _hoverWidgetId any
 ---@field _touchWidgetId any
 ---@field _isInput boolean
----@field _events {type:string,args:any[]}[]
 ---@field _push table<string,any>
 ---@field _list table<string,{data:LGUI.WidgetData,use:boolean}>
+---@field _prefixId string[]
 ---@field _containerStack LGUI.WidgetData[]
 ---@field _dragX number
 ---@field _dragY number
----@field _windowPos table<string,{x:number,y:number,width:number,height:number,lastX:number,lastY:number,sort:number}>
+---@field _windowPos table<string,{x:number,y:number,width:number,height:number,lastX:number,lastY:number,sort:number,scrollY:number}>
 local ui = {}
 
 function ui.new()
@@ -50,6 +50,10 @@ end
 
 local function mround(v)
     return math.floor(v + 0.5);
+end
+
+local function mclump(v, m, mx)
+    return math.max(math.min(v, math.max(mx, m)), m);
 end
 
 local function pointHitRect(x, y, x1, y1, w, h)
@@ -162,6 +166,7 @@ local WidgetState = {
     measure = "measure";
     update = "update";
     draw = "draw";
+    draw_top = "drawtop";
     lclick = "lclick";
 };
 
@@ -280,7 +285,8 @@ function Widget.edit(state, values, position, style, wt, ui)
             lst.border_radius or 0);
         local dx = position.x; -- math.max(0, mround(position.x + (position.width - position.measureWidth) / 2));
         local dy = math.max(0, mround(position.y + (position.height - math.max(fontHeight, position.measureHeight or 0)) / 2));
-        gr.intersectScissor(position.x + 3, position.y, position.width - 3, position.height);
+        local gx, gy = gr.inverseTransformPoint(0, 0);
+        gr.intersectScissor(position.x + 3, position.y - gy, position.width - 3, position.height);
         local offsetX = 0;
         if isFocus then
             local textInput = ui._textInput;
@@ -290,17 +296,17 @@ function Widget.edit(state, values, position, style, wt, ui)
             if cx then
                 if x2 > x1 then
                     love.graphics.setColor(1, 1, 1, 0.2);
-                    love.graphics.rectangle("fill", dx + x1 + lst.border_width + 3, dy, x2 - x1, fontHeight);
+                    love.graphics.rectangle("fill", dx + x1 + lst.border_width + lst.padding_left, dy, x2 - x1, fontHeight);
                 end
                 love.graphics.setColor(1, 1, 1, 1);
                 local blink = textInput:getBlinkPhase();
                 if (blink - math.floor(blink)) < 0.5 then
-                    love.graphics.rectangle("fill", dx + cx + lst.border_width + 3, dy, 1, fontHeight)
+                    love.graphics.rectangle("fill", dx + cx + lst.border_width + lst.padding_left, dy, 1, fontHeight)
                 end
             end
         end
         gr.setColor(color2(lst.color or "#ffffff"));
-        gr.print(values.text or "", mround(dx + offsetX + lst.border_width + 3), mround(dy));
+        gr.print(values.text or "", mround(dx + offsetX + lst.border_width + lst.padding_left), mround(dy));
         gr.pop();
     end
 end
@@ -330,19 +336,52 @@ function Widget.window(state, values, position, style, wt, ui)
         if ui:isHover(wt) then
             lst = lst.hover;
         end
+
         local titleWidth = wt.position.width - wt.style.border_width * 2;
-        local strTitleWidth = titleWidth - lst.padding_left - lst.padding_right;
-        gr.setColor(color2(wt.style.border_color));
-        gr.rectangle("fill", wt.position.x, wt.position.y, wt.position.width, wt.position.height, wt.style.border_radius);
+
+        --- border
+        if wt.style.border_width > 0 then
+            gr.setColor(color2(wt.style.border_color));
+            gr.rectangle("fill", wt.position.x, wt.position.y, wt.position.width, wt.position.height, wt.style.border_radius);
+        end
+
+        --- background
         gr.setColor(color2(wt.style.backgound_color));
         gr.rectangle("fill", wt.position.x + wt.style.border_width, wt.position.y + wt.style.border_width, titleWidth, wt.position.height - wt.style.border_width * 2, wt.style.border_radius);
+
+        local titleHeight = 0;
+        --- titlebar
         if arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
+            titleHeight = wt.style.title_height;
+            local strTitleWidth = titleWidth - lst.padding_left - lst.padding_right;
+
             gr.setColor(color2(wt.style.title_background_color));
             gr.rectangle("fill", wt.position.x + wt.style.border_width, wt.position.y + wt.style.border_width, titleWidth, wt.style.title_height, wt.style.border_radius);
             local title = values.title or "窗口"
             local x, y  = textAlign(wt.style.textAlign, wt.style.textVerticalAlign, wt.position.measureWidth, wt.position.measureHeight, strTitleWidth, wt.style.title_height);
             gr.setColor(color2(lst.color or "#ffffff"));
-            gr.print(title, mround(wt.position.x + x + wt.style.padding_left), mround(wt.position.y + y));
+            gr.print(title, mround(wt.position.x + wt.style.border_width + x + wt.style.padding_left), mround(wt.position.y + y));
+        end
+    elseif state == WidgetState.draw_top then
+        local titleHeight = 0;
+        --- titlebar
+        if arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
+            titleHeight = wt.style.title_height;
+        end
+        --- scroll
+        if arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoScrollbar) <= 0 then
+            if position.actualHeight > position.contentHeight then
+                local blockHeight, blockWidth = math.max(5, 1 / (position.actualHeight / position.contentHeight) * position.contentHeight), 10;
+                local topBottomSpacing, leftRightSpacing = 2, 2;
+                local displayHeight = (position.contentHeight - blockHeight + wt.style.padding_top + wt.style.padding_bottom - topBottomSpacing * 2);
+                local rate = style.scrollY / (position.actualHeight - position.contentHeight);
+
+                local posX, posY = wt.position.x + position.width - wt.style.border_width - blockWidth - leftRightSpacing, topBottomSpacing + wt.position.y + wt.style.border_width + titleHeight;
+                gr.setColor(0.1, 0.1, 0.1, 0.6);
+                gr.rectangle("fill", posX, posY, blockWidth, displayHeight + blockHeight, style.border_radius);
+                gr.setColor(0.3, 0.3, 0.3, 0.8);
+                gr.rectangle("fill", posX, posY + mclump(rate * displayHeight, 0, displayHeight), blockWidth, blockHeight, style.border_radius);
+            end
         end
     end
 end
@@ -352,7 +391,6 @@ WidgetName.label = "label";
 WidgetName.button = "button";
 WidgetName.selection = "selection";
 WidgetName.edit = "edit";
-WidgetName.panel = "panel";
 WidgetName.window = "window";
 WidgetName.group = "group";
 
@@ -387,10 +425,7 @@ ui.Event = {
     wheelmoved = "wheelmoved",
 }
 
-
-
 function ui:ctor()
-    self._events = {};
     self._widgets = {};
     self._windows = {};
     self._widgetStyles = {};
@@ -405,40 +440,31 @@ function ui:ctor()
     self:registerWidget(Widget.edit, WidgetName.edit, lstyle[WidgetName.edit]);
     self:registerWidget(Widget.window, WidgetName.window, lstyle[WidgetName.window]);
     self:registerWidget(Widget.window, WidgetName.group, lstyle[WidgetName.group]);
-    -- self._widgetStyles[WidgetName.window] = lstyle[WidgetName.window];
-    -- self:registerWidget(Panel, WidgetName.panel, {});
 end
 
 function ui:keypressed(key, scancode, isRepeat)
-    table.insert(self._events, { type = ui.Event.keypressed, args = { key, scancode, isRepeat } });
-    self:_event();
+    self:_event(ui.Event.keypressed, key, scancode, isRepeat);
 end
 
 function ui:textinput(text, a)
-    table.insert(self._events, { type = ui.Event.textinput, args = { text, a } });
-    self:_event();
+    self:_event(ui.Event.textinput, text, a);
 end
 
 function ui:mousepressed(...)
-    table.insert(self._events, { type = ui.Event.mousepressed, args = { ... } });
-    self:_event();
+    self:_event(ui.Event.mousepressed, ...);
 end
 
 function ui:mousemoved(...)
-    table.insert(self._events, { type = ui.Event.mousemoved, args = { ... } });
-    self:_event();
+    self:_event(ui.Event.mousemoved, ...);
 end
 
 function ui:mousereleased(...)
-    table.insert(self._events, { type = ui.Event.mousereleased, args = { ... } });
-    self:_event();
+    self:_event(ui.Event.mousereleased, ...);
 end
 
 function ui:wheelmoved(x, y)
-    table.insert(self._events, { type = ui.Event.wheelmoved, args = { x, y } });
-    self:_event();
+    self:_event(ui.Event.wheelmoved, x, y);
 end
-
 
 ---@return number
 function ui:uuid()
@@ -500,21 +526,24 @@ end
 ---@protected
 ---@param name string
 ---@param st? LGUI.Style
----@param static? boolean
+---@param static boolean
 function ui:_widgetBegin(name, values, st, static)
     local cur = self:_curContainer();
 
     local id = tostring(self:uuid());
+    table.insert(self._prefixId, 1, values.title or values.text or id);
+
+    local oid = table.concat(self._prefixId, ",");
     values = values or {};
-    local uuid = static and id or values;
+    local uuid = static and oid or values;
 
     local r = self._push[uuid];
     self._push[uuid] = nil;
 
     local unchanged;
-    if name == WidgetName.window then
+    if self:_isContainer(name) then
         if not self._windowPos[uuid] then
-            self._windowPos[uuid] = { x = values.x, y = values.y, lastX = values.x, lastY = values.y, sort = os.clock() };
+            self._windowPos[uuid] = { x = values.x, y = values.y, lastX = values.x, lastY = values.y, sort = os.clock(), scrollY = 0 };
         else
             unchanged = self._windowPos[uuid].lastX == values.x and self._windowPos[uuid].lastY == values.y;
             if not unchanged then
@@ -538,6 +567,7 @@ function ui:_widgetBegin(name, values, st, static)
         if self._windowPos[uuid] then
             posX = self._windowPos[uuid].x;
             posY = self._windowPos[uuid].y;
+            st.scrollY = self._windowPos[uuid].scrollY;
         end
         local _currentWindow = { id = id, _ = uuid, values = values or {}, name = name, rows = {}, position = { width = 200, height = 300, x = posX or values.x, y = posY or values.y }, style = assignStyle(self._widgetStyles[name], st) };
         self._list[uuid] = { data = _currentWindow, use = true };
@@ -545,6 +575,9 @@ function ui:_widgetBegin(name, values, st, static)
         self:_pushStack(_currentWindow);
     elseif name == WidgetName.group then
         if cur then
+            if self._windowPos[uuid] then
+                st.scrollY = self._windowPos[uuid].scrollY;
+            end
             ---@type LGUI.WidgetData
             local _currentWindow = { id = id, _ = uuid, measureSize = true, values = values, name = name, rows = {}, position = { width = 0, height = 300, }, style = assignStyle(self._widgetStyles[name], st) };
             self._list[uuid] = { data = _currentWindow, use = true };
@@ -561,6 +594,9 @@ end
 ---@protected
 function ui:_widgetEnd()
     self._currentWindow = nil;
+    if #self._prefixId then
+        table.remove(self._prefixId, 1);
+    end
     self:_popStack();
 end
 
@@ -671,23 +707,24 @@ function ui:layoutRow(height, count)
     count = count or 1;
     if cur and count then
         local ty = type(count);
-        local width = cur.position.width;
+        -- local width = cur.position.width;
         local num = count;
         if ty == "table" then
             num = #count;
         end
-        width = cur.position.width - cur.style.padding_left - cur.style.padding_right - math.max(0, (num - 1) * cur.style.elementSpacing) - cur.style.border_width * 2;
+        -- width = cur.position.width - cur.style.padding_left - cur.style.padding_right - math.max(0, (num - 1) * cur.style.elementSpacing) - cur.style.border_width * 2;
         local widths;
         local measure = true;
-        if not cur.measureSize then
-            widths = layoutRowSize(width, count);
-            measure = false;
-        else
-            if ty == "table" then
-                widths = count;
-            end
+        -- if not cur.measureSize then
+        --     widths = layoutRowSize(width, count);
+        --     measure = false;
+        -- else
+        if ty == "table" then
+            widths = count;
         end
-        table.insert(cur.rows, { info = { count = num, height = height, widths = widths, measureSize = measure }, widgets = {} });
+        -- end
+        -- table.insert(cur.rows, { info = { count = num, height = height, widths = widths, measureSize = measure }, widgets = {} });
+        table.insert(cur.rows, { info = { count = num, height = height, measureSize = measure, widths = widths }, widgets = {} });
     end
 end
 
@@ -779,11 +816,27 @@ function ui:windowEnd()
     self:_widgetEnd();
 end
 
+---@protected
+---@param name string
+---@param state string
+---@param wt LGUI.WidgetData
+function ui:_widgetState(name, state, wt)
+    local comp = self._widgets[name] or name;
+    if type(comp) == "function" then
+        return comp(state, wt.values, wt.position, wt.style, wt, self)
+    end
+end
+
+---@overload fun(self:LGUI,window:{title:string},st?:LGUI.Style)
 ---@param title string
 ---@param st? LGUI.Style
 ---@return boolean
 function ui:groupBegin(title, st)
-    local w = self:_widgetBegin(WidgetName.group, { title = title }, st);
+    local isTab = type(title) == "table";
+    if not isTab then
+        title = { title = title };
+    end
+    local w = self:_widgetBegin(WidgetName.group, title, st, not isTab);
     if w and st then
         w.position.width = st.width or w.position.width;
         w.position.height = st.height or w.position.height;
@@ -822,39 +875,74 @@ function ui:beginFrame(w, h, x, y)
     y = y or 0;
 
     self._windows = {};
+    self._prefixId = {};
     self._containerStack = {};
     self._uuid = 0;
     self._currentWindow = nil;
     self._defaultWindow = nil;
-
     return true;
 end
 
 
 ---@protected
+function ui:_isContainer(name)
+    return name == WidgetName.window or name == WidgetName.group;
+end
+
+---@protected
 ---@param window LGUI.WidgetData
 function ui:_updateElement(window)
-    local otherWdith = (window.style.padding_left or 0) + (window.style.border_width or 0) + (window.style.padding_right or 0);
-    local ox, oy = (window.position.x or 0) + (window.style.padding_left or 0) + (window.style.border_width or 0), ((window.position.y or 0) + (window.style.padding_top or 0) + (window.style.border_width or 0));
+    local titleHeight = 0;
     if arrayIndexOf(window.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
-        oy = oy + (window.style.title_height or 0);
+        titleHeight = (window.style.title_height or 0);
     end
-    local dx = ox;
-    local dy = oy;
-    local width, height = window.position.width, window.position.height;
+    window.position.contentX = (window.style.padding_left or 0) + (window.style.border_width or 0);
+    window.position.contentY = (window.style.padding_top or 0) + (window.style.border_width or 0) + titleHeight;
+    window.position.contentWidth = window.position.width - (window.style.padding_left or 0) - (window.style.padding_right or 0) - (window.style.border_width or 0) * 2;
+    window.position.contentHeight = window.position.height - (window.style.padding_top or 0) - (window.style.padding_bottom or 0) - (window.style.border_width or 0) * 2 - titleHeight;
+
+    local ox, oy = (window.position.x or 0) + window.position.contentX, (window.position.y or 0) + window.position.contentY;
+    local width = window.position.contentWidth;
+
+    window.position.actualWidth = window.position.contentWidth;
+    window.position.actualHeight = 0;
 
     self:_widgetState(window.name, WidgetState.update, window);
     window.position.measureWidth, window.position.measureHeight = self:_widgetState(window.name, WidgetState.measure, window); -- size
 
+    --- calc height
+    if window.rows then
+        local h = 0;
+        for _, row in ipairs(window.rows) do
+            local lineHeight = row.info.height + window.style.lineSpacing;
+            if #row.widgets > 0 then
+                h = h + math.ceil(#row.widgets / row.info.count) * lineHeight;
+            elseif row.info.count == 0 then
+                h = h + lineHeight;
+            end
+        end
+        window.position.actualHeight = h;
+        if window.position.actualHeight > window.position.contentHeight then
+            window.style.scrollY = math.min(window.style.scrollY, window.position.actualHeight - window.position.contentHeight)
+            if arrayIndexOf(window.style.flags, ui.Flags.WindowFlags_NoScrollbar) <= 0 then
+                width = width - 12;
+            end
+        elseif window.style.scrollY ~= 0 then
+            window.style.scrollY = 0;
+        end
+    end
+
+    local dx, dy = ox, oy;
     if window.rows then
         for i, row in ipairs(window.rows) do
             dx = ox;
             local j = 0;
             if row.info.measureSize then
-                local widths = layoutRowSize(width - otherWdith, row.info.widths or row.info.count);
+                local widths = layoutRowSize(width - math.max(0, window.style.elementSpacing * (row.info.count - 1)), row.info.widths or row.info.count);
                 row.info.widths = widths;
                 row.info.measureSize = false;
             end
+            local lineHeight = row.info.height + window.style.lineSpacing;
             if #row.widgets > 0 then
                 for index, wt in ipairs(row.widgets) do
                     j = j + 1;
@@ -874,22 +962,19 @@ function ui:_updateElement(window)
                     --         print("a???", wt.id, wt.name, type(wt.name))
                     --     end
                     -- end
-
                     self:_updateElement(wt);
-
-
                     dx = dx + ww + window.style.elementSpacing;
                     if j >= row.info.count then
-                        dy = dy + row.info.height + window.style.lineSpacing;
+                        dy = dy + lineHeight;
                         dx = ox;
                         j = 0;
                     end
                 end
                 if j > 0 then
-                    dy = dy + row.info.height + window.style.lineSpacing;
+                    dy = dy + lineHeight;
                 end
             elseif row.info.count == 0 then
-                dy = dy + row.info.height + window.style.lineSpacing;
+                dy = dy + lineHeight;
             end
         end
     end
@@ -923,110 +1008,115 @@ function ui:endFrame()
     end)
 end
 
----@param ele LGUI.WidgetData
-local function find(ele, x, y)
-    if pointHitRect(x, y, ele.position.x, ele.position.y, ele.position.width, ele.position.height) then
-        if ele.rows then
-            for index, row in ipairs(ele.rows) do
-                for index, wt in ipairs(row.widgets) do
-                    local tar = find(wt, x, y);
-                    if tar then
-                        return tar;
+---@protected
+---@param x number
+---@param y number
+---@return LGUI.WidgetData @mouse target
+---@return LGUI.WidgetData[] @list
+function ui:curPosWidget(x, y)
+    local ls;
+    local target;
+
+    ---@param w LGUI.WidgetData
+    local function find(w, x, y, arr)
+        if pointHitRect(x, y, w.position.x, w.position.y, w.position.width, w.position.height) then
+            table.insert(arr, w);
+            if w.rows then
+                local beginY = w.position.y + w.position.contentY;
+                if y > beginY and y < beginY + w.position.contentHeight then -- content rect
+                    for _, row in ipairs(w.rows) do
+                        for _, wt in ipairs(row.widgets) do
+                            local tar = find(wt, x, y + (w.style.scrollY or 0), arr);
+                            if tar then
+                                return tar;
+                            end
+                        end
                     end
                 end
             end
+            return w;
         end
-        return ele;
+    end
+
+    for i = #self._windows, 1, -1 do
+        ls = {};
+        target = find(self._windows[i], x, y, ls);
+        if target then
+            break;
+        end
+    end
+
+    return target, target and ls;
+end
+
+---@param target? LGUI.WidgetData
+function ui:_setEditBox(target)
+    if target then
+        self._isInput = true;
+        self._textInput:setFont(love.graphics.getFont());
+        self._textInput:setWidth(target.position.contentWidth);
+        self._textInput:setText(target.values.text or "");
+        self._textInput:moveCursor(999);
+        self._textInput:setScroll(0);
+        love.keyboard.setKeyRepeat(true);
+    else
+        self._isInput = false;
+        love.keyboard.setKeyRepeat(false);
     end
 end
 
 ---@protected
----@param name string
----@param state string
----@param wt LGUI.WidgetData
-function ui:_widgetState(name, state, wt)
-    local comp = self._widgets[name] or name;
-    if type(comp) == "function" then
-        return comp(state, wt.values, wt.position, wt.style, wt, self)
-    end
-end
+---@param etype string
+---@param p1 any
+---@param p2 any
+---@param p3 any
+---@param p4 any
+---@param p5 any
+function ui:_event(etype, p1, p2, p3, p4, p5)
+    local isMouseDown = etype == ui.Event.mousepressed;
+    local isMouseRelase = etype == ui.Event.mousereleased;
+    local isTouchEvent = isMouseDown or isMouseRelase or etype == ui.Event.mousemoved;
+    local windowId;
+    if isTouchEvent then
+        local target, ls = self:curPosWidget(p1, p2);
+        if ls and #ls > 0 then
+            windowId = ls[1]._;
+        end
 
----@protected
-function ui:_event()
-    while #self._events > 0 do
-        local e = table.remove(self._events, 1);
-        local isMouseDown = e.type == ui.Event.mousepressed;
-        local isMouseRelase = e.type == ui.Event.mousereleased;
-        local isTouchEvent = isMouseDown or isMouseRelase or e.type == ui.Event.mousemoved;
-        local windowId;
-        if isTouchEvent then
-            local target;
-            local x, y = e.args[1], e.args[2];
-            local num = #self._windows;
-            for i = num, 1, -1 do
-                target = find(self._windows[i], x, y);
-                if target then
-                    windowId = self._windows[i]._;
-                    break;
-                end
-            end
-            local targetId = target and target._;
-            local isValid = self._isInput;
+        local targetId = target and target._;
+        local focusWidget = self._list[self._fucusWidgetId];
+
+        local isLastEditBox = focusWidget and (focusWidget.data.name == WidgetName.edit);
+        if isMouseDown then
+            isLastEditBox = (self._fucusWidgetId == targetId) and self._isInput;
+        end
+
+        self._hoverWidgetId = targetId;
+
+        if isLastEditBox then --last edit
+            local tarX = focusWidget.data.position.x + focusWidget.data.position.contentX;
+            local tarY = focusWidget.data.position.y + focusWidget.data.position.contentY;
+            self._textInput[etype](self._textInput, p1 - tarX, p2 - tarY, p3, p4);
+        else
             if isMouseDown then
-                self._touchWidgetId = targetId;
-                if self._isInput then
-                    if self._fucusWidgetId ~= targetId then -- release
-                        isValid = false;
-                        self._fucusWidgetId = nil;
-                    end
-                else
-                    isValid = false;
-                end
+                self._fucusWidgetId = nil;
+                self._isInput = nil;
+                if target then
+                    if targetId ~= self._fucusWidgetId then
+                        self._fucusWidgetId = targetId;
+                        self._touchWidgetId = targetId;
+                        if target.name == WidgetName.edit then
+                            local tarX = target.position.x + target.position.contentX;
+                            local tarY = target.position.y + target.position.contentY;
 
-            end
-            if isValid then
-                local focusWidget = self._list[self._fucusWidgetId];
-                local focusWidgetName;
-                if focusWidget then
-                    focusWidgetName = focusWidget.data.name;
-                end
-                if (target ~= nil and targetId == self._fucusWidgetId and target.name == WidgetName.edit) or (focusWidgetName == WidgetName.edit) then
-                    local tar = target or focusWidget.data;
-                    local xv, vy = e.args[1] - tar.position.x, e.args[2] - tar.position.y;
-                    local iss = false;
-                    if isMouseDown then
-                        iss = (xv < 0) or (vy < 0) or (target ~= nil and targetId ~= self._fucusWidgetId);
-                    end
-                    vy = 4;
-                    if not iss then
-                        if xv > 0 then
-                            if xv < 6 then
-                                xv = 0;
-                            end
-                            self._textInput[e.type](self._textInput, xv, vy - tar.position.y, e.args[3], e.args[4]);
+                            self:_setEditBox(target);
+
+                            self._textInput[etype](self._textInput, p1 - tarX, p2 - tarY, p3, p4);
+                        else
+                            self:_setEditBox(nil);
                         end
-
                     end
-                end
-            else
-                if isMouseDown then
-                    self._fucusWidgetId = nil;
-                    self._isInput = nil;
-                    if target then
-                        if targetId ~= self._fucusWidgetId then
-                            self._fucusWidgetId = targetId;
-                            self._touchWidgetId = targetId;
-                            if target.name == WidgetName.edit then
-                                self._textInput:setFont(love.graphics.getFont());
-                                self._textInput:setWidth(target.position.width - 6 - target.style.border_width * 2);
-                                self._textInput:setText(targetId.text or "");
-                                self._textInput:moveCursor(999)
-                                self._textInput:setScroll(0);
-                                love.keyboard.setKeyRepeat(true);
-                                self._isInput = true;
-                            end
-                        end
-
+                    if windowId then
                         self._windowPos[windowId].sort = os.clock();
                         if target.name == WidgetName.window then
                             if arrayIndexOf(self._list[windowId].data.style.flags, ui.Flags.WindowFlags_NoMove) < 0 then
@@ -1036,45 +1126,66 @@ function ui:_event()
                             end
                         end
                     end
-                elseif isMouseRelase then
-                    if target then
-                        if self._touchWidgetId == targetId then
-                            local ret = self:_widgetState(target.name, WidgetState.lclick, target);
-                            self._push[targetId] = { ret = ret or { true } };
-                        end
-                        self._touchWidgetId = nil;
+                end
+            elseif isMouseRelase then
+                if target then
+                    if self._touchWidgetId == targetId then
+                        local ret = self:_widgetState(target.name, WidgetState.lclick, target);
+                        self._push[targetId] = { ret = ret or { true } };
                     end
-                    self._dragWindow = nil;
-                else -- mousemove
-                    if self._dragWindow then
-                        -- table.print(self._list, 1)
-                        local tar = self._list[self._touchWidgetId];
-                        if tar then
-                            local x = love.mouse.getX() - self._dragX;
-                            local y = love.mouse.getY() - self._dragY;
+                    self._touchWidgetId = nil;
+                end
+                self._dragWindow = nil;
+                self._dragX = 0;
+                self._dragY = 0;
+            else -- mousemove
+                if self._dragWindow then
+                    local tar = self._list[self._touchWidgetId];
+                    if tar then
+                        local x = love.mouse.getX() - self._dragX;
+                        local y = love.mouse.getY() - self._dragY;
 
-                            self._push[tar.data._] = { ret = { true }, values = { x = x, y = y } }
-                        end
-
-                        -- print(tar.data.position.x, tar.data.position.y);
-                    end
-
-                    self._hoverWidgetId = nil;
-                    if target then
-                        self._hoverWidgetId = targetId;
+                        self._push[tar.data._] = { ret = { true }, values = { x = x, y = y } }
                     end
 
                 end
             end
-        else
-            if self._fucusWidgetId and self._isInput then
-                self._textInput[e.type](self._textInput, unpack(e.args));
-                self._push[self._fucusWidgetId] = { ret = { true }, values = { text = self._textInput:getText() } };
+        end
+    elseif etype == ui.Event.wheelmoved then
+        local tar, ls = self:curPosWidget(love.mouse.getX(), love.mouse.getY());
+        if tar then
+            if #ls > 0 and ls[1].name == WidgetName.window then
+                local panel;
+                local step = p2 * 5;
+                for i = #ls, 1, -1 do
+                    if self:_isContainer(ls[i].name) then
+                        panel = ls[i];
+                        local max = panel.position.actualHeight - panel.position.contentHeight;
+                        if max > 0 then
+                            local next = mclump(panel.style.scrollY - step, 0, max);
+                            if (panel.style.scrollY or 0) ~= next then
+                                break;
+                            end
+                        end
+                    end
+                end
+
+                if panel then
+                    local panelId = panel._;
+                    local max = panel.position.actualHeight - panel.position.contentHeight;
+                    local value = self._windowPos[panelId].scrollY - step;
+                    self._windowPos[panelId].scrollY = mclump(value, 0, max);
+                end
+
             end
         end
 
+    else
+        if self._fucusWidgetId and self._isInput then
+            self._textInput[etype](self._textInput, p1, p2, p3, p4, p5);
+            self._push[self._fucusWidgetId] = { ret = { true }, values = { text = self._textInput:getText() } };
+        end
     end
-
 
 end
 
@@ -1085,39 +1196,36 @@ function ui:_drawElement(element)
     if not element or not element.name or element.name == "" then
         return;
     end
-
     gr.push("all");
     self:_widgetState(element.name, WidgetState.draw, element);
-    if element.name == WidgetName.window or element.name == WidgetName.group then
-        local titleHeight = 0;
-        if arrayIndexOf(element.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
-            titleHeight = element.style.title_height;
-        end
-
-        local w, h = element.position.width, element.position.height - element.style.padding_bottom - element.style.padding_top - titleHeight;
-        gr.intersectScissor(element.position.x,
-            element.position.y + element.style.padding_top + element.style.border_width + titleHeight,
-            math.max(1, w), math.max(1, h));
+    if self:_isContainer(element.name) then
+        ---------
+        local scrollX, scrollY = gr.inverseTransformPoint(0, 0);
+        gr.intersectScissor(
+            element.position.x + element.position.contentX - scrollX,
+            element.position.y + element.position.contentY - scrollY,
+            math.max(element.position.contentWidth, 0) + 1,
+            math.max(element.position.contentHeight, 0) + 1
+        );
         gr.translate(-element.style.scrollX or 0, -element.style.scrollY or 0);
     end
     if element.rows then
         for i, row in ipairs(element.rows) do
             local j = 0;
-            for index, wt in ipairs(row.widgets) do
+            for _, wt in ipairs(row.widgets) do
                 self:_drawElement(wt);
-                if self._debug then
-                    gr.setColor(1, 0, 0, 0.5);
-                    gr.rectangle("line", wt.position.x or 0, wt.position.y or 0, wt.position.width or 0, wt.position.height or 0);
-                end
                 j = j + 1;
             end
         end
-        if self._debug then
-            gr.setColor(1, 1, 1, 0.5);
-            gr.rectangle("line", element.position.x or 0, element.position.y or 0, element.position.width or 0, element.position.height or 0);
-        end
+
     end
     gr.pop();
+    self:_widgetState(element.name, WidgetState.draw_top, element);
+    -----
+    if self._debug then
+        gr.setColor(1, 1, 1, 0.5);
+        gr.rectangle("line", element.position.x or 0, element.position.y or 0, element.position.width or 0, element.position.height or 0);
+    end
 end
 
 function ui:draw()
@@ -1186,6 +1294,10 @@ return ui;
 ---@field measureHeight number
 ---@field actualWidth number
 ---@field actualHeight number
+---@field contentWidth number
+---@field contentHeight number
+---@field contentX number
+---@field contentY number
 ---@field x number
 ---@field y number
 

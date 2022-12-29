@@ -1,28 +1,25 @@
-require "helper"
 local style = require "style"
 
 local ui = require("LGUI").new();
 
-local input = { text = "???" }
+local title = { text = "input title." }
 local id = { text = "10000" }
 local name = { text = "fox~" }
 local desc = { text = "hello imlgui." }
 
-
 local sw = true;
-
 
 local selectBtn = { text = "switch button", selected = false }
 local selectIndex = 0;
-local y = 20;
-
 
 local win = { title = "Question", x = 80, y = 23 };
+
+local btns = {};
 
 function love.update(dt)
     if ui:beginFrame() then
 
-        if ui:windowBegin("Title Bar", 0, 0, { elementSpacing = 5, border_radius = 0, padding_top = 3, padding_bottom = 3, width = love.graphics.getWidth(), height = 32, flags = { ui.Flags.WindowFlags_NoTitleBar, ui.Flags.WindowFlags_NoMove } }) then
+        if ui:windowBegin("Title Bar", 0, 0, { border_width = 1, elementSpacing = 5, border_radius = 0, padding_top = 3, padding_bottom = 0, width = love.graphics.getWidth(), height = 32, flags = { ui.Flags.WindowFlags_NoTitleBar, ui.Flags.WindowFlags_NoMove } }) then
             ui:layoutRow(22, { 80, 80, 80, 80, 80 });
             ui:selection("File", true);
             ui:selection("Edit", false);
@@ -30,14 +27,14 @@ function love.update(dt)
             ui:windowEnd();
         end
 
-        if ui:windowBegin(win, { width = 500, height = 500 }) then
+        if ui:windowBegin(win, { width = 500, height = 500, flags = {} }) then
             ui:layoutRow(24, { 50, -1, 60 });
             ui:label("title");
-            ui:edit(desc)
+            ui:edit(title)
             if ui:button("publis") then
                 print("publis.")
             end
-            ui:layoutRow(400, { 0.4, 0.2, 0.4 });
+            ui:layoutRow(450, { 0.4, 0.2, 0.4 });
             if ui:groupBegin("left group", { textAlign = ui.TextAlign.left }) then
                 ui:layoutRow();
                 ui:label("auto size.");
@@ -184,7 +181,7 @@ function love.update(dt)
             ui:blankline(10)
 
             ui:layoutRow(100, 1)
-            if ui:groupBegin("group.", {}) then
+            if ui:groupBegin("group.", { flags = { ui.Flags.WindowFlags_NoScrollbar } }) then
                 ui:layoutRow(20);
                 ui:label("next group. WindowFlags_NoTitleBar")
 
@@ -197,7 +194,7 @@ function love.update(dt)
                 end
 
                 ui:layoutRow();
-                ui:label("")
+                ui:label("surprise");
 
                 ui:groupEnd();
             end
@@ -214,6 +211,23 @@ function love.update(dt)
             ui:button("confrim")
             ui:button("cancel")
             ui:blank();
+
+            ui:layoutRow(26, 2);
+            if ui:button("add button.") then
+                table.insert(btns, "button" .. #btns + 1);
+            end
+            if ui:button("delete button.") then
+                if #btns > 0 then
+                    table.remove(btns, 1);
+                end
+            end
+
+            ui:layoutRow();
+            for index, value in ipairs(btns) do
+                if ui:button(value) then
+                    print("hello index: " .. index)
+                end
+            end
 
             ui:windowEnd();
         end
@@ -237,6 +251,9 @@ end
 
 function love.keypressed(a, b, c)
     ui:keypressed(a, b, c);
+    if a == "f1" then
+        ui._debug = not ui._debug;
+    end
 end
 
 function love.mousepressed(...)

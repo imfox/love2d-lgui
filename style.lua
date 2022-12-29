@@ -48,6 +48,8 @@ local style = {
         color = "#9f9f9f",
         textAlign = "left",
         textVerticalAlign = "middle",
+        padding_left = 3,
+        padding_right = 3,
         focus = {
             color = "#eeeeee",
         },
