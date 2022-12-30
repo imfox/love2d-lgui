@@ -172,23 +172,18 @@ end
 local Widget = {}
 
 ---@param state string
----@param values any
----@param position LGUI.Position
----@param style LGUI.Style
 ---@param wt LGUI.WidgetData
 ---@param ui LGUI
-function Widget.image(state, values, position, style, wt, ui)
+function Widget.image(state, wt, ui)
 
 end
 
 
 ---@param state string
----@param values any
----@param position LGUI.Position
----@param style LGUI.Style
 ---@param wt LGUI.WidgetData
 ---@param ui LGUI
-function Widget.button(state, values, position, style, wt, ui)
+function Widget.button(state, wt, ui)
+    local values, position, style = wt.values, wt.position, wt.style;
     if state == WidgetState.measure then
         local font = gr.getFont();
         local str = values.text or "";
@@ -220,16 +215,19 @@ function Widget.button(state, values, position, style, wt, ui)
         if values.selected ~= nil then
             values.selected = not values.selected;
         end
+    elseif state == lui.Event.mousepressed or state == lui.Event.mousereleased then
+        return true;
+    elseif state == lui.Event.mousemoved then
+        return ui:isDown(wt);
     end
 
 end
 
----@param values any
----@param position LGUI.Position
----@param style LGUI.Style
+---@param state string
 ---@param wt LGUI.WidgetData
 ---@param ui LGUI
-function Widget.label(state, values, position, style, wt, ui)
+function Widget.label(state, wt, ui)
+    local values, position, style = wt.values, wt.position, wt.style;
     if state == WidgetState.measure then
         local font = gr.getFont();
         local str = values.text or "";
@@ -255,12 +253,11 @@ function Widget.label(state, values, position, style, wt, ui)
     end
 end
 
----@param values any
----@param position LGUI.Position
----@param style LGUI.Style
+---@param state string
 ---@param wt LGUI.WidgetData
 ---@param ui LGUI
-function Widget.edit(state, values, position, style, wt, ui)
+function Widget.edit(state, wt, ui, push, x, y, ...)
+    local values, position, style = wt.values, wt.position, wt.style;
     if state == WidgetState.measure then
         local font = gr.getFont();
         local str = values.text or "";
@@ -316,15 +313,57 @@ function Widget.edit(state, values, position, style, wt, ui)
         gr.setColor(color2(lst.color or "#ffffff"));
         gr.print(values.text or "", mround(dx + offsetX + lst.border_width + lst.padding_left), mround(dy));
         gr.pop();
+    elseif state == lui.Event.mousepressed then
+        local isTrue = ui:isFocus(wt);
+        if push then
+            if not ui._isInput or not isTrue then
+                ui:_setEditBox(wt);
+            end
+        end
+        if push then
+            ui._textInput[state](ui._textInput, x - (position.x + position.contentX), y - (position.y + position.contentY), ...);
+        end
+        return push or isTrue;
+    elseif state == lui.Event.mousemoved then
+        if (push or push == nil) and ui:isFocus(wt) then
+            ui._textInput[state](ui._textInput, x - (position.x + position.contentX), y - (position.y + position.contentY), ...);
+            return true;
+        end
+    elseif state == lui.Event.mousereleased then
+        if (push or push == nil) and ui:isFocus(wt) then
+            ui._textInput[state](ui._textInput, x - (position.x + position.contentX), y - (position.y + position.contentY), ...);
+            return true;
+        end
     end
 end
 
----@param values any
----@param position LGUI.Position
----@param style LGUI.Style
+---@param t number 1.scrollV(0~(actualSize-size)) 2.range(0~1) 3.barPos(0~barSize)
+---@param value number
+---@param size number
+---@param actualSize number
+---@param barSize number
+---@return number @range
+---@return number @blockSize
+---@return number @barPos
+---@return number @scrollV
+local function scrollPos(t, value, size, actualSize, barSize)
+    local blockSize = math.max(5, 1 / (actualSize / size) * size);
+    local rate;
+    if t == 1 then
+        rate = value / (actualSize - size);
+    elseif t == 3 then
+        rate = (value - blockSize / 2) / (barSize - blockSize);
+    else
+        rate = value;
+    end
+    return rate, blockSize, rate * (barSize - blockSize), rate * (actualSize - size);
+end
+
+---@param state string
 ---@param wt LGUI.WidgetData
 ---@param ui LGUI
-function Widget.window(state, values, position, style, wt, ui)
+function Widget.window(state, wt, ui, push, x, y)
+    local values, position, style = wt.values, wt.position, wt.style;
     if state == WidgetState.measure then
         local font = gr.getFont();
         local str = values.title or "窗口";
@@ -371,26 +410,64 @@ function Widget.window(state, values, position, style, wt, ui)
             gr.print(title, mround(wt.position.x + wt.style.border_width + x + wt.style.padding_left), mround(wt.position.y + y));
         end
     elseif state == WidgetState.draw_top then
-        local titleHeight = 0;
-        --- titlebar
-        if arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
-            titleHeight = wt.style.title_height;
-        end
         --- scroll
         if arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoScrollbar) <= 0 then
             if position.actualHeight > position.contentHeight then
-                local blockHeight, blockWidth = math.max(5, 1 / (position.actualHeight / position.contentHeight) * position.contentHeight), 10;
-                local topBottomSpacing, leftRightSpacing = 2, 2;
-                local displayHeight = (position.contentHeight - blockHeight + wt.style.padding_top + wt.style.padding_bottom - topBottomSpacing * 2);
-                local rate = position.scrollY / (position.actualHeight - position.contentHeight);
+                local topBottomSpacing, leftRightSpacing, blockWidth = 2, 2, 10;
+                local barHeight = (position.contentHeight + wt.style.padding_top + wt.style.padding_bottom - topBottomSpacing * 2);
+                local posX, posY = wt.position.x + position.width - wt.style.border_width - blockWidth - leftRightSpacing, wt.position.y + wt.position.contentY + topBottomSpacing - wt.style.padding_top;
 
-                local posX, posY = wt.position.x + position.width - wt.style.border_width - blockWidth - leftRightSpacing, topBottomSpacing + wt.position.y + wt.style.border_width + titleHeight;
+                local _, blockHeight, pos = scrollPos(1, position.scrollY, position.contentHeight, position.actualHeight, barHeight);
+
                 gr.setColor(0.1, 0.1, 0.1, 0.6);
-                gr.rectangle("fill", posX, posY, blockWidth, displayHeight + blockHeight, style.border_radius);
+                gr.rectangle("fill", posX, posY, blockWidth, barHeight, style.border_radius);
                 gr.setColor(0.3, 0.3, 0.3, 0.8);
-                gr.rectangle("fill", posX, posY + mclump(rate * displayHeight, 0, displayHeight), blockWidth, blockHeight, style.border_radius);
+                gr.rectangle("fill", posX, posY + mclump(pos, 0, barHeight - blockHeight), blockWidth, blockHeight, style.border_radius);
             end
         end
+    elseif state == ui.Event.mousepressed then
+        --- scroll
+        if push then
+            if wt.position.actualHeight > wt.position.contentHeight and arrayIndexOf(wt.style.flags, ui.Flags.WindowFlags_NoScrollbar) <= 0 then
+                local topBottomSpacing, leftRightSpacing, blockWidth = 2, 2, 10;
+                local barHeight = (position.contentHeight + wt.style.padding_top + wt.style.padding_bottom - topBottomSpacing * 2);
+                local posX, posY = wt.position.x + position.width - wt.style.border_width - blockWidth - leftRightSpacing, wt.position.y + wt.position.contentY + topBottomSpacing - wt.style.padding_top;
+
+                local v, blockHeight, pos, lastV = scrollPos(1, position.scrollY, position.contentHeight, position.actualHeight, barHeight);
+
+                if pointHitRect(x, y, posX, posY, blockWidth, barHeight) then
+                    ui._windowPos[wt._].temp.scroll = true;
+                    local v2, _, _, scrollY = scrollPos(3, y - posY, position.contentHeight, position.actualHeight, barHeight);
+                    ui._windowPos[wt._].temp.scrollValue = scrollY - lastV;
+                    if not pointHitRect(x, y, posX, posY + pos, blockWidth, blockHeight) then --click blank
+                        ui._windowPos[wt._].temp.scrollValue = 0;
+                        ui._windowPos[wt._].scrollY = scrollY;
+                    end
+                    return "scroll";
+                end
+            end
+            if wt.name == WidgetName.window then
+                return "drag";
+            end
+        end
+    elseif state == ui.Event.mousemoved then
+        if push or push == nil then
+            if ui._windowPos[wt._].temp.scroll then
+                local topBottomSpacing, leftRightSpacing, blockWidth = 2, 2, 10;
+                local barHeight = (position.contentHeight + wt.style.padding_top + wt.style.padding_bottom - topBottomSpacing * 2);
+                local posX, posY = wt.position.x + position.width - wt.style.border_width - blockWidth - leftRightSpacing, wt.position.y + wt.position.contentY + topBottomSpacing - wt.style.padding_top;
+
+                local _, _, _, lastV = scrollPos(3, y - posY, position.contentHeight, position.actualHeight, barHeight);
+                local _, _, _, scrollY = scrollPos(1, lastV - ui._windowPos[wt._].temp.scrollValue, position.contentHeight, position.actualHeight, barHeight);
+                ui._windowPos[wt._].scrollY = math.max(scrollY, 0);
+                return true;
+            else
+                return ui:isDown(wt);
+            end
+        end
+    elseif state == ui.Event.mousereleased then
+        ui._windowPos[wt._].temp.scrollValue = nil;
+        ui._windowPos[wt._].temp.scroll = nil;
     end
 end
 
@@ -512,7 +589,7 @@ function lui:_widgetBegin(name, values, st, static)
     local unchanged;
     if self:_isContainer(name) then
         if not self._windowPos[uuid] then
-            self._windowPos[uuid] = { x = values.x, y = values.y, lastX = values.x, lastY = values.y, sort = os.clock(), scrollY = 0 };
+            self._windowPos[uuid] = { x = values.x, y = values.y, lastX = values.x, lastY = values.y, sort = os.clock(), scrollY = 0, temp = {} };
         else
             unchanged = self._windowPos[uuid].lastX == values.x and self._windowPos[uuid].lastY == values.y;
             if not unchanged then
@@ -790,10 +867,10 @@ end
 ---@param name string
 ---@param state string
 ---@param wt LGUI.WidgetData
-function lui:_widgetState(name, state, wt)
+function lui:_widgetState(name, state, wt, ...)
     local comp = self._widgets[name] or name;
     if type(comp) == "function" then
-        return comp(state, wt.values, wt.position, wt.style, wt, self)
+        return comp(state, wt, self, ...);
     end
 end
 
@@ -909,6 +986,8 @@ function lui:_updateElement(window)
                     -- if wt.name then
                     --     local comp = self._widgets[wt.name];
                     --     if comp then
+                    wt.position.globalOffsetX = (window.position.globalOffsetX or 0) + (window.position.scrollX or 0);
+                    wt.position.globalOffsetY = (window.position.globalOffsetY or 0) + (window.position.scrollY or 0);
                     wt.position.x = dx + (wt.style.margin_left or 0);
                     wt.position.y = dy + (wt.style.margin_top or 0);
                     wt.position.width = ww - (wt.style.margin_left or 0) - (wt.style.margin_right or 0);
@@ -971,7 +1050,7 @@ end
 ---@param x number
 ---@param y number
 ---@return LGUI.WidgetData @mouse target
----@return LGUI.WidgetData[] @list
+---@return {item:LGUI.WidgetData,x:number,y:number}[] @list
 function lui:curPosWidget(x, y)
     local ls;
     local target;
@@ -979,7 +1058,7 @@ function lui:curPosWidget(x, y)
     ---@param w LGUI.WidgetData
     local function find(w, x, y, arr)
         if pointHitRect(x, y, w.position.x, w.position.y, w.position.width, w.position.height) then
-            table.insert(arr, w);
+            table.insert(arr, { item = w, x = x, y = y });
             if w.rows then
                 local beginY = w.position.y + w.position.contentY;
                 if y > beginY and y < beginY + w.position.contentHeight then -- content rect
@@ -1037,63 +1116,79 @@ function lui:_event(etype, p1, p2, p3, p4, p5)
     local isTouchEvent = isMouseDown or isMouseRelase or etype == lui.Event.mousemoved;
     local windowId;
     if isTouchEvent then
-        local target, ls = self:curPosWidget(p1, p2);
+        local hoverTarget, ls = self:curPosWidget(p1, p2);
         if ls and #ls > 0 then
-            windowId = ls[1]._;
+            windowId = ls[1].item._;
+        end
+
+        local target;
+        local isDragWindow;
+        local lastTouchId = self._touchWidgetId;
+
+        if ls and #ls > 0 then
+            local dealIndex = 1;
+            for i = 1, #ls do --- push
+                local value = ls[i];
+                local ret = self:_widgetState(value.item.name, etype, value.item, true, value.x, value.y, p3, p4, p5);
+                isDragWindow = isMouseDown and tostring(ret) == "drag";
+
+                local isTrue = false;
+                if #ls == 1 or i ~= 1 then
+                    isTrue = ret;
+                end
+
+                if isTrue then
+                    target = value.item;
+                    dealIndex = i;
+                    break;
+                end
+
+            end
+
+            for i = dealIndex, 1, -1 do --- pop
+                local value = ls[i];
+                local ret = self:_widgetState(value.item.name, etype, value.item, false, value.x, value.y, p3, p4, p5);
+                if ret then
+                    break;
+                end
+            end
         end
 
         local targetId = target and target._;
-        local focusWidget = self._list[self._fucusWidgetId];
+        self._hoverWidgetId = hoverTarget and hoverTarget._;
 
-        local isLastEditBox = focusWidget and (focusWidget.data.name == WidgetName.edit);
         if isMouseDown then
-            isLastEditBox = (self._fucusWidgetId == targetId) and self._isInput;
-        end
-
-        self._hoverWidgetId = targetId;
-
-        if isLastEditBox then --last edit
-            local tarX = focusWidget.data.position.x + focusWidget.data.position.contentX;
-            local tarY = focusWidget.data.position.y + focusWidget.data.position.contentY;
-            self._textInput[etype](self._textInput, p1 - tarX, p2 - tarY, p3, p4);
-        else
-            if isMouseDown then
-                self._fucusWidgetId = nil;
-                self._isInput = nil;
-                if target then
-                    if targetId ~= self._fucusWidgetId then
-                        self._fucusWidgetId = targetId;
-                        self._touchWidgetId = targetId;
-                        if target.name == WidgetName.edit then
-                            local tarX = target.position.x + target.position.contentX;
-                            local tarY = target.position.y + target.position.contentY;
-
-                            self:_setEditBox(target);
-
-                            self._textInput[etype](self._textInput, p1 - tarX, p2 - tarY, p3, p4);
-                        else
-                            self:_setEditBox(nil);
-                        end
-                    end
-                    if windowId then
-                        self._windowPos[windowId].sort = os.clock();
-                        if target.name == WidgetName.window then
-                            if arrayIndexOf(self._list[windowId].data.style.flags, lui.Flags.WindowFlags_NoMove) < 0 then
-                                self._dragX      = love.mouse.getX() - target.position.x;
-                                self._dragY      = love.mouse.getY() - target.position.y;
-                                self._dragWindow = true;
-                            end
-                        end
+            -- if targetId then
+            self._touchWidgetId = targetId;
+            self._fucusWidgetId = targetId;
+            -- end
+            if windowId then
+                self._windowPos[windowId].sort = os.clock();
+                if isDragWindow then
+                    if arrayIndexOf(self._list[windowId].data.style.flags, lui.Flags.WindowFlags_NoMove) < 0 then
+                        self._dragX      = love.mouse.getX() - self._list[windowId].data.position.x;
+                        self._dragY      = love.mouse.getY() - self._list[windowId].data.position.y;
+                        self._dragWindow = true;
                     end
                 end
-            elseif isMouseRelase then
+            end
+        else
+
+            if lastTouchId and lastTouchId ~= targetId then
+                local widget = self._list[lastTouchId];
+                if widget then
+                    self:_widgetState(widget.data.name, etype, widget.data, nil, p1 + (widget.data.position.globalOffsetX or 0), p2 + (widget.data.position.globalOffsetY or 0), p3, p4, p5);
+                end
+            end
+
+            if isMouseRelase then
                 if target then
                     if self._touchWidgetId == targetId then
                         local ret = self:_widgetState(target.name, WidgetState.lclick, target);
                         self._push[targetId] = { ret = ret or { true } };
                     end
-                    self._touchWidgetId = nil;
                 end
+                self._touchWidgetId = nil;
                 self._dragWindow = nil;
                 self._dragX = 0;
                 self._dragY = 0;
@@ -1103,25 +1198,23 @@ function lui:_event(etype, p1, p2, p3, p4, p5)
                     if tar then
                         local x = love.mouse.getX() - self._dragX;
                         local y = love.mouse.getY() - self._dragY;
-
                         self._push[tar.data._] = { ret = { true }, values = { x = x, y = y } }
                     end
-
                 end
             end
         end
     elseif etype == lui.Event.wheelmoved then
         local tar, ls = self:curPosWidget(love.mouse.getX(), love.mouse.getY());
         if tar then
-            if #ls > 0 and ls[1].name == WidgetName.window then
+            if #ls > 0 and ls[1].item.name == WidgetName.window then
                 local panel;
                 local step = p2 * 5;
                 for i = #ls, 1, -1 do
-                    if self:_isContainer(ls[i].name) then
-                        panel = ls[i];
+                    if self:_isContainer(ls[i].item.name) then
+                        panel = ls[i].item;
                         local max = panel.position.actualHeight - panel.position.contentHeight;
                         if max > 0 then
-                            local next = mclump(panel.position.scrollY - step, 0, max);
+                            local next = mclump((panel.position.scrollY or 0) - step, 0, max);
                             if (panel.position.scrollY or 0) ~= next then
                                 break;
                             end
@@ -1181,7 +1274,7 @@ function lui:_drawElement(element)
             math.max(element.position.contentWidth, 0) + 1,
             math.max(element.position.contentHeight, 0) + 1
         );
-        gr.translate(-(element.position.scrollX or 0), -(element.position.scrollY or 0));
+        gr.translate(-(element.position.scrollX or 0), -math.floor(element.position.scrollY or 0));
     end
     if element.rows then
         for i, row in ipairs(element.rows) do
@@ -1244,6 +1337,7 @@ return lui;
 ---@field lastX number
 ---@field lastY number
 ---@field sort number
+---@field temp any
 
 ---@class LGUI.WidgetData
 ---@field id string
@@ -1266,6 +1360,8 @@ return lui;
 ---@field contentHeight number
 ---@field contentX number
 ---@field contentY number
+---@field globalOffsetX number
+---@field globalOffsetY number
 ---@field x number
 ---@field y number
 ---@field scrollX number
