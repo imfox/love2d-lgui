@@ -12,14 +12,14 @@ local sw = true;
 local selectBtn = { text = "switch button", selected = false }
 local selectIndex = 0;
 
-local win = { title = "Question", x = 80, y = 23 };
+local win = { title = "Question", width = 500, height = 500, x = 80, y = 23 };
 
 local btns = {};
 
 function love.update(dt)
     if ui:frameBegin() then
 
-        if ui:windowBegin("Title Bar", 0, 0, { border_width = 1, elementSpacing = 5, border_radius = 0, padding_top = 3, padding_bottom = 0, width = love.graphics.getWidth(), height = 32, flags = { ui.Flags.WindowFlags_NoTitleBar, ui.Flags.WindowFlags_NoMove } }) then
+        if ui:windowBegin({ title = "TitleBar", x = 0, y = 0, width = love.graphics.getWidth(), height = 32 }, { border_width = 1, elementSpacing = 5, border_radius = 0, padding_top = 3, padding_bottom = 0, flags = { ui.Flags.WindowFlags_NoTitleBar, ui.Flags.WindowFlags_NoMove } }) then
             ui:layoutRow(22, { 80, 80, 80, 80, 80 });
             ui:selection("File", true);
             ui:selection("Edit", false);
@@ -27,7 +27,7 @@ function love.update(dt)
             ui:windowEnd();
         end
 
-        if ui:windowBegin(win, { width = 500, height = 500, flags = {} }) then
+        if ui:windowBegin(win, { flags = {} }) then
             ui:layoutRow(24, { 50, -1, 60 });
             ui:label("title");
             ui:edit(title)
@@ -146,7 +146,7 @@ function love.update(dt)
             ui:windowEnd();
         end
 
-        if ui:windowBegin("ID Card", 800, 20, { width = 300, height = 600 }) then
+        if ui:windowBegin("ID Card", 800, 20, 300, 600, {}) then
             ui:layoutRow(24, { 36, -1, 48 });
             ui:label("id");
             ui:edit(id)
