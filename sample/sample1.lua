@@ -17,7 +17,7 @@ local win = { title = "Question", x = 80, y = 23 };
 local btns = {};
 
 function love.update(dt)
-    if ui:beginFrame() then
+    if ui:frameBegin() then
 
         if ui:windowBegin("Title Bar", 0, 0, { border_width = 1, elementSpacing = 5, border_radius = 0, padding_top = 3, padding_bottom = 0, width = love.graphics.getWidth(), height = 32, flags = { ui.Flags.WindowFlags_NoTitleBar, ui.Flags.WindowFlags_NoMove } }) then
             ui:layoutRow(22, { 80, 80, 80, 80, 80 });
@@ -232,7 +232,7 @@ function love.update(dt)
             ui:windowEnd();
         end
 
-        ui:endFrame();
+        ui:frameEnd();
     end
 
 end

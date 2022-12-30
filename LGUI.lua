@@ -1,5 +1,6 @@
+local lstyle = require("style");
+local color2 = require("color2");
 local InputField = require("InputField")
-local lstyle = require("style")
 
 local gr = love.graphics;
 
@@ -23,15 +24,13 @@ local gr = love.graphics;
 ---@field _dragX number
 ---@field _dragY number
 ---@field _windowPos table<string,{x:number,y:number,width:number,height:number,lastX:number,lastY:number,sort:number,scrollY:number}>
-local ui = {}
+local lui = {}
 
-function ui.new()
-    local inst = setmetatable({}, { __index = ui });
+function lui.new()
+    local inst = setmetatable({}, { __index = lui });
     inst.ctor(inst);
     return inst;
 end
-
-local c_white = { 1, 1, 1 };
 
 ---@generic T:any
 ---@param arr T[]
@@ -60,67 +59,6 @@ local function pointHitRect(x, y, x1, y1, w, h)
     return x >= x1 and x <= x1 + w and y >= y1 and y < y1 + h;
 end
 
-local _c_colors_ = {};
----@param hex string|number
----@return number[] @r,g,b,a
-local function color2(hex)
-    local t = type(hex);
-    local isString = t == "string"
-    if isString or t == "number" then --16进制的颜色
-        if _c_colors_[hex] then
-            return _c_colors_[hex];
-        end
-        local colors;
-        if isString then
-            hex = string.gsub(string.lower(hex), " ", "");
-            local len = #hex;
-            if len > 3 then
-                local unit = 0xff;
-                if string.sub(hex, 1, 1) == "#" then
-                    local step = 1;
-                    if len > 5 then
-                        hex = tonumber(string.sub(hex, 2, len), 16);
-                    else
-                        colors = { string.match(hex, "#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f]?)") };
-                        unit = 0xf;
-                    end
-                elseif string.sub(hex, 1, 2) == "0x" then
-                    hex = tonumber(hex, 16);
-                elseif string.sub(hex, 1, 3) == "rgb" then
-                    colors = { string.match(hex, "%((%d+),(%d+),(%d+),?(%d-)%)") };
-                end
-                if colors then
-                    if colors[4] == "" then
-                        table.remove(colors, 4);
-                    end
-                    for i, v in ipairs(colors) do
-                        colors[i] = (tonumber(v, (unit == 0xff) and 10 or 16) or unit) / unit;
-                    end
-                    ---------
-                    _c_colors_[hex] = colors;
-                    return colors;
-                end
-            else
-                -- hex = 0xffffff;
-                return c_white;
-            end
-        end
-        colors = {};
-        if bit.band(hex, bit.bnot(0xffffff)) ~= 0 then -- 存在aplha值
-            table.insert(colors, bit.band(bit.rshift(hex, 24), 0xff) / 0xff);
-        end
-        table.insert(colors, bit.band(bit.rshift(hex, 16), 0xff) / 0xff);
-        table.insert(colors, bit.band(bit.rshift(hex, 8), 0xff) / 0xff);
-        table.insert(colors, bit.band(hex, 0xff) / 0xff);
-        -------
-        _c_colors_[hex] = colors;
-        return colors;
-    elseif t == "table" then
-        return t;
-    end
-    return c_white;
-end
-
 local function assignStyle(dst, src)
     src = src or {};
     src.hover = src.hover or dst.hover or {};
@@ -142,16 +80,16 @@ end
 local function textAlign(align, vAlign, textWdith, textHeight, width, height)
     local cx = 0;
     local cy = 0;
-    local isRight = align == ui.TextAlign.right;
-    local isMiddle = vAlign == ui.TextAlign.middle;
-    if isRight or align == ui.TextAlign.center then
-        if isRight then
-            cx = (width - math.min(width, textWdith or 0));
-        else
+    local isCenter = align == lui.TextAlign.center;
+    local isMiddle = vAlign == lui.TextAlign.middle;
+    if isCenter or align == lui.TextAlign.right then
+        if isCenter then
             cx = (width - math.min(width, textWdith or 0)) / 2;
+        else
+            cx = (width - math.min(width, textWdith or 0));
         end
     end
-    if isMiddle or vAlign == ui.TextAlign.bottom then
+    if isMiddle or vAlign == lui.TextAlign.bottom then
         if isMiddle then
             cy = (height - math.min(height, textHeight or 0)) / 2;
         else
@@ -173,6 +111,17 @@ local WidgetState = {
 ---小部件
 ---@class LGUI.Widget
 local Widget = {}
+
+---@param state string
+---@param values any
+---@param position LGUI.Position
+---@param style LGUI.Style
+---@param wt LGUI.WidgetData
+---@param ui LGUI
+function Widget.image(state, values, position, style, wt, ui)
+
+end
+
 
 ---@param state string
 ---@param values any
@@ -267,7 +216,7 @@ function Widget.edit(state, values, position, style, wt, ui)
             ui._textInput:update(love.timer.getDelta());
         end
     elseif state == WidgetState.draw then
-        local font = love.graphics:getFont();
+        local font = gr:getFont();
         local fontHeight = font:getHeight();
 
         local lst = style;
@@ -295,13 +244,13 @@ function Widget.edit(state, values, position, style, wt, ui)
             offsetX = textInput:getTextOffset();
             if cx then
                 if x2 > x1 then
-                    love.graphics.setColor(1, 1, 1, 0.2);
-                    love.graphics.rectangle("fill", dx + x1 + lst.border_width + lst.padding_left, dy, x2 - x1, fontHeight);
+                    gr.setColor(1, 1, 1, 0.2);
+                    gr.rectangle("fill", dx + x1 + lst.border_width + lst.padding_left, dy, x2 - x1, fontHeight);
                 end
-                love.graphics.setColor(1, 1, 1, 1);
+                gr.setColor(1, 1, 1, 1);
                 local blink = textInput:getBlinkPhase();
                 if (blink - math.floor(blink)) < 0.5 then
-                    love.graphics.rectangle("fill", dx + cx + lst.border_width + lst.padding_left, dy, 1, fontHeight)
+                    gr.rectangle("fill", dx + cx + lst.border_width + lst.padding_left, dy, 1, fontHeight)
                 end
             end
         end
@@ -394,7 +343,7 @@ WidgetName.edit = "edit";
 WidgetName.window = "window";
 WidgetName.group = "group";
 
-ui.TextAlign = {
+lui.TextAlign = {
     left = "left",
     right = "right",
     center = "center",
@@ -403,7 +352,7 @@ ui.TextAlign = {
     middle = "middle",
 }
 
-ui.Flags = {
+lui.Flags = {
     WindowFlags_NoScrollbar = "NoScrollbar",
     WindowFlags_NoMove = "NoMove",
     WindowFlags_NoTitleBar = "NoTitleBar",
@@ -416,7 +365,7 @@ ui.Flags = {
     EditUndo = "EditUndo",
 }
 
-ui.Event = {
+lui.Event = {
     keypressed = "keypressed",
     textinput = "textinput",
     mousepressed = "mousepressed",
@@ -425,7 +374,7 @@ ui.Event = {
     wheelmoved = "wheelmoved",
 }
 
-function ui:ctor()
+function lui:ctor()
     self._widgets = {};
     self._windows = {};
     self._widgetStyles = {};
@@ -442,32 +391,32 @@ function ui:ctor()
     self:registerWidget(Widget.window, WidgetName.group, lstyle[WidgetName.group]);
 end
 
-function ui:keypressed(key, scancode, isRepeat)
-    self:_event(ui.Event.keypressed, key, scancode, isRepeat);
+function lui:keypressed(key, scancode, isRepeat)
+    self:_event(lui.Event.keypressed, key, scancode, isRepeat);
 end
 
-function ui:textinput(text, a)
-    self:_event(ui.Event.textinput, text, a);
+function lui:textinput(text, a)
+    self:_event(lui.Event.textinput, text, a);
 end
 
-function ui:mousepressed(...)
-    self:_event(ui.Event.mousepressed, ...);
+function lui:mousepressed(...)
+    self:_event(lui.Event.mousepressed, ...);
 end
 
-function ui:mousemoved(...)
-    self:_event(ui.Event.mousemoved, ...);
+function lui:mousemoved(...)
+    self:_event(lui.Event.mousemoved, ...);
 end
 
-function ui:mousereleased(...)
-    self:_event(ui.Event.mousereleased, ...);
+function lui:mousereleased(...)
+    self:_event(lui.Event.mousereleased, ...);
 end
 
-function ui:wheelmoved(x, y)
-    self:_event(ui.Event.wheelmoved, x, y);
+function lui:wheelmoved(x, y)
+    self:_event(lui.Event.wheelmoved, x, y);
 end
 
 ---@return number
-function ui:uuid()
+function lui:uuid()
     if not self._uuid then
         self._uuid = 0;
     end
@@ -478,7 +427,7 @@ end
 ---@param widget function
 ---@param name string
 ---@param style LGUI.Style
-function ui:registerWidget(widget, name, style)
+function lui:registerWidget(widget, name, style)
     if self._widgets[name] then
         print("widget is exist:", name);
     end
@@ -489,7 +438,7 @@ end
 ---@protected
 ---@param style? LGUI.Style
 ---@return any
-function ui:_widget(name, style, values, static)
+function lui:_widget(name, style, values, static)
     local cur = self:_curContainer();
     if not cur then
         return;
@@ -527,7 +476,7 @@ end
 ---@param name string
 ---@param st? LGUI.Style
 ---@param static boolean
-function ui:_widgetBegin(name, values, st, static)
+function lui:_widgetBegin(name, values, st, static)
     local cur = self:_curContainer();
 
     local id = tostring(self:uuid());
@@ -592,7 +541,7 @@ function ui:_widgetBegin(name, values, st, static)
 end
 
 ---@protected
-function ui:_widgetEnd()
+function lui:_widgetEnd()
     self._currentWindow = nil;
     if #self._prefixId then
         table.remove(self._prefixId, 1);
@@ -601,19 +550,19 @@ function ui:_widgetEnd()
 end
 
 ---@protected
-function ui:_curContainer()
+function lui:_curContainer()
     return self._currentWindow or self._defaultWindow;
 end
 
 ---@protected
 ---@param wt LGUI.WidgetData
-function ui:_pushStack(wt)
+function lui:_pushStack(wt)
     table.insert(self._containerStack, wt);
     self._currentWindow = wt;
 end
 
 ---@protected
-function ui:_popStack()
+function lui:_popStack()
     if #self._containerStack > 0 then
         table.remove(self._containerStack, #self._containerStack);
     end
@@ -701,7 +650,7 @@ end
 
 ---@param height? number default 26
 ---@param count? number|number[] default 1
-function ui:layoutRow(height, count)
+function lui:layoutRow(height, count)
     local cur = self:_curContainer();
     height = height or 26;
     count = count or 1;
@@ -728,11 +677,11 @@ function ui:layoutRow(height, count)
     end
 end
 
-function ui:blank()
+function lui:blank()
     self:_widget(nil, nil, nil);
 end
 
-function ui:blankline(height)
+function lui:blankline(height)
     local cur = self:_curContainer();
     if not cur then
         return;
@@ -751,7 +700,7 @@ end
 ---@overload fun(self:LGUI,text:{text:string,selected:boolean},st?:LGUI.Style):boolean
 ---@param text string
 ---@param st? LGUI.Style
-function ui:button(text, st)
+function lui:button(text, st)
     if type(text) == "table" then
         return self:_widget(WidgetName.button, assignStyle(self._widgetStyles[WidgetName.button], st), text);
     else
@@ -761,7 +710,7 @@ end
 
 ---@param text string
 ---@param st? LGUI.Style
-function ui:label(text, st)
+function lui:label(text, st)
     self:_widget(WidgetName.label, assignStyle(self._widgetStyles[WidgetName.label], st), { text = text }, true);
 end
 
@@ -770,7 +719,7 @@ end
 ---@param value? {text:string,selected:boolean}
 ---@param st? LGUI.Style
 ---@return boolean
-function ui:selection(value, st, c)
+function lui:selection(value, st, c)
     if type(value) == "table" then
         return self:_widget(WidgetName.selection, assignStyle(self._widgetStyles[WidgetName.selection], st), value);
     else
@@ -781,7 +730,7 @@ end
 
 ---@param value {text:string}
 ---@param st? LGUI.Style
-function ui:edit(value, st)
+function lui:edit(value, st)
     if not self._textInput then
         self._textInput = InputField("");
     end
@@ -794,7 +743,7 @@ end
 ---@param y? number
 ---@param st? LGUI.Style
 ---@return boolean
-function ui:windowBegin(title, x, y, st)
+function lui:windowBegin(title, x, y, st)
     local values;
     local static = true;
     if type(title) == "table" then
@@ -812,7 +761,7 @@ function ui:windowBegin(title, x, y, st)
     return not not w;
 end
 
-function ui:windowEnd()
+function lui:windowEnd()
     self:_widgetEnd();
 end
 
@@ -820,7 +769,7 @@ end
 ---@param name string
 ---@param state string
 ---@param wt LGUI.WidgetData
-function ui:_widgetState(name, state, wt)
+function lui:_widgetState(name, state, wt)
     local comp = self._widgets[name] or name;
     if type(comp) == "function" then
         return comp(state, wt.values, wt.position, wt.style, wt, self)
@@ -831,7 +780,7 @@ end
 ---@param title string
 ---@param st? LGUI.Style
 ---@return boolean
-function ui:groupBegin(title, st)
+function lui:groupBegin(title, st)
     local isTab = type(title) == "table";
     if not isTab then
         title = { title = title };
@@ -844,22 +793,22 @@ function ui:groupBegin(title, st)
     return true;
 end
 
-function ui:groupEnd()
+function lui:groupEnd()
     self:_widgetEnd();
 end
 
 ---@param wt LGUI.WidgetData
-function ui:isHover(wt)
+function lui:isHover(wt)
     return self._hoverWidgetId and self._hoverWidgetId == (wt and wt._);
 end
 
 ---@param wt LGUI.WidgetData
-function ui:isFocus(wt)
+function lui:isFocus(wt)
     return self._fucusWidgetId and self._fucusWidgetId == (wt and wt._);
 end
 
 ---@param wt LGUI.WidgetData
-function ui:isDown(wt)
+function lui:isDown(wt)
     return self._touchWidgetId and self._touchWidgetId == (wt and wt._);
 end
 
@@ -868,7 +817,7 @@ end
 ---@param h? number
 ---@param x? number
 ---@param y? number
-function ui:beginFrame(w, h, x, y)
+function lui:frameBegin(w, h, x, y)
     w = w or 800;
     h = h or 600;
     x = x or 0;
@@ -885,15 +834,15 @@ end
 
 
 ---@protected
-function ui:_isContainer(name)
+function lui:_isContainer(name)
     return name == WidgetName.window or name == WidgetName.group;
 end
 
 ---@protected
 ---@param window LGUI.WidgetData
-function ui:_updateElement(window)
+function lui:_updateElement(window)
     local titleHeight = 0;
-    if arrayIndexOf(window.style.flags, ui.Flags.WindowFlags_NoTitleBar) <= 0 then
+    if arrayIndexOf(window.style.flags, lui.Flags.WindowFlags_NoTitleBar) <= 0 then
         titleHeight = (window.style.title_height or 0);
     end
     window.position.contentX = (window.style.padding_left or 0) + (window.style.border_width or 0);
@@ -924,7 +873,7 @@ function ui:_updateElement(window)
         window.position.actualHeight = h;
         if window.position.actualHeight > window.position.contentHeight then
             window.style.scrollY = math.min(window.style.scrollY, window.position.actualHeight - window.position.contentHeight)
-            if arrayIndexOf(window.style.flags, ui.Flags.WindowFlags_NoScrollbar) <= 0 then
+            if arrayIndexOf(window.style.flags, lui.Flags.WindowFlags_NoScrollbar) <= 0 then
                 width = width - 12;
             end
         elseif window.style.scrollY ~= 0 then
@@ -982,7 +931,7 @@ function ui:_updateElement(window)
 end
 
 
-function ui:endFrame()
+function lui:frameEnd()
     --- 标记失效
     for k, item in pairs(self._list) do
         if not item.use then
@@ -1013,7 +962,7 @@ end
 ---@param y number
 ---@return LGUI.WidgetData @mouse target
 ---@return LGUI.WidgetData[] @list
-function ui:curPosWidget(x, y)
+function lui:curPosWidget(x, y)
     local ls;
     local target;
 
@@ -1050,10 +999,10 @@ function ui:curPosWidget(x, y)
 end
 
 ---@param target? LGUI.WidgetData
-function ui:_setEditBox(target)
+function lui:_setEditBox(target)
     if target then
         self._isInput = true;
-        self._textInput:setFont(love.graphics.getFont());
+        self._textInput:setFont(gr.getFont());
         self._textInput:setWidth(target.position.contentWidth);
         self._textInput:setText(target.values.text or "");
         self._textInput:moveCursor(999);
@@ -1072,10 +1021,10 @@ end
 ---@param p3 any
 ---@param p4 any
 ---@param p5 any
-function ui:_event(etype, p1, p2, p3, p4, p5)
-    local isMouseDown = etype == ui.Event.mousepressed;
-    local isMouseRelase = etype == ui.Event.mousereleased;
-    local isTouchEvent = isMouseDown or isMouseRelase or etype == ui.Event.mousemoved;
+function lui:_event(etype, p1, p2, p3, p4, p5)
+    local isMouseDown = etype == lui.Event.mousepressed;
+    local isMouseRelase = etype == lui.Event.mousereleased;
+    local isTouchEvent = isMouseDown or isMouseRelase or etype == lui.Event.mousemoved;
     local windowId;
     if isTouchEvent then
         local target, ls = self:curPosWidget(p1, p2);
@@ -1119,7 +1068,7 @@ function ui:_event(etype, p1, p2, p3, p4, p5)
                     if windowId then
                         self._windowPos[windowId].sort = os.clock();
                         if target.name == WidgetName.window then
-                            if arrayIndexOf(self._list[windowId].data.style.flags, ui.Flags.WindowFlags_NoMove) < 0 then
+                            if arrayIndexOf(self._list[windowId].data.style.flags, lui.Flags.WindowFlags_NoMove) < 0 then
                                 self._dragX      = love.mouse.getX() - target.position.x;
                                 self._dragY      = love.mouse.getY() - target.position.y;
                                 self._dragWindow = true;
@@ -1151,7 +1100,7 @@ function ui:_event(etype, p1, p2, p3, p4, p5)
                 end
             end
         end
-    elseif etype == ui.Event.wheelmoved then
+    elseif etype == lui.Event.wheelmoved then
         local tar, ls = self:curPosWidget(love.mouse.getX(), love.mouse.getY());
         if tar then
             if #ls > 0 and ls[1].name == WidgetName.window then
@@ -1192,7 +1141,7 @@ end
 ---comment
 ---@protected
 ---@param element LGUI.WidgetData
-function ui:_drawElement(element)
+function lui:_drawElement(element)
     if not element or not element.name or element.name == "" then
         return;
     end
@@ -1228,7 +1177,7 @@ function ui:_drawElement(element)
     end
 end
 
-function ui:draw()
+function lui:draw()
     gr.push("all");
     for _, window in ipairs(self._windows) do
         gr.setScissor();
@@ -1264,7 +1213,7 @@ function ui:draw()
     gr.pop();
 end
 
-return ui;
+return lui;
 
 
 ---@class LGUI.RowInfo
@@ -1300,8 +1249,12 @@ return ui;
 ---@field contentY number
 ---@field x number
 ---@field y number
+---@field scrollX number
+---@field scrollY number
 
 ---@class LGUI.BaseStyle
+---@field width number image
+---@field height number image
 ---@field color string
 ---@field strokeColor string
 ---@field text string --button label
@@ -1312,7 +1265,6 @@ return ui;
 ---@field textAlign "left"|"right"|"center" --label button
 ---@field textVerticalAlign "top"|"bottom"|"middle" --label button
 ---@field icon love.Drawable --button
----@field moveable boolean --window
 ---@field border_radius number -- button window
 ---@field border_color number -- button window
 ---@field border_width number -- button window
@@ -1328,8 +1280,6 @@ return ui;
 ---@field title_height number
 
 ---@class LGUI.Style : LGUI.BaseStyle, LGUI.Position
----@field scrollX number
----@field scrollY number
 ---@field flags string[]
 ---@field hover LGUI.BaseStyle
 ---@field focus LGUI.BaseStyle
